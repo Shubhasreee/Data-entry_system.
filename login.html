@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DATAENTRY</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #000000;
+        }
+
+        .container {
+            text-align: center;
+            background-color: #ffffff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            max-width: 600px;
+            width: 100%;
+            animation: fadeIn 1.5s ease-in-out;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+            font-size: 24px;
+            color:black;
+            animation: blink 2s infinite;
+        }
+
+        video {
+            width: 100%;
+            height: 200%;
+            max-width: 500px;
+            margin: 20px 0;
+            border: 2px solid #f5f2f2;
+            border-radius: 8px;
+            animation: fadeIn 2s ease-in-out;
+        }
+
+        #status {
+            margin-top: 20px;
+            font-size: 16px;
+            color: #333;
+            animation: fadeIn 2s ease-in-out;
+        }
+
+        #userInfo {
+            margin-top: 20px;
+            font-size: 16px;
+            animation: fadeIn 2s ease-in-out;
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+
+        @keyframes slideInFromTop {
+            from {
+                transform: translateY(-50px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes scaleUp {
+            from {
+                transform: scale(0.8);
+                opacity: 0;
+            }
+            to {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1><b>*LOGIN OR REGISTER*</b></h1>
+        <video id="video" autoplay></video>
+        <p id="status">Initializing...</p>
+        <div id="userInfo"></div>
+    </div>
+    
+    <script>
+        const video = document.getElementById('video');
+        const statusElement = document.getElementById('status');
+        const userInfoElement = document.getElementById('userInfo');
+
+        // Initialize speech synthesis
+        const synth = window.speechSynthesis;
+
+        function speak(text) {
+            const utterance = new SpeechSynthesisUtterance(text);
+            synth.speak(utterance);
+        }
+
+        // Initialize speech recognition
+        const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+        recognition.lang = 'en-US';
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        let mode = '';
+        let userDetails = {};
+
+        recognition.onresult = event => {
+    let command = event.results[0][0].transcript.toLowerCase().trim();
+
+    if (mode === 'initial') {
+        if (command.includes('register')) {
+            speak('Please say your name.');
+            mode = 'registerName';
+        } else if (command.includes('login')) {
+            speak('Please look straight into the camera to login.');
+            mode = 'login';
+            captureImage();
+        } else {
+            speak('Please say "register" to register or "login" to login.');
+        }
+    } else if (mode === 'registerName') {
+        userDetails.name = command;
+        speak('Please say your email address, starting with the part before the at symbol.');
+        mode = 'registerEmailUser';
+        userInfoElement.innerHTML = `Name: ${userDetails.name}<br>Email: (not yet set)`;
+    } else if (mode === 'registerEmailUser') {
+        userDetails.emailUser = command.replace(/\s+/g, ''); // Remove any spaces
+        speak('Now say the domain name after the at symbol.');
+        mode = 'registerEmailDomain';
+    } else if (mode === 'registerEmailDomain') {
+        userDetails.emailDomain = command.replace(/\s+/g, ''); // Remove any spaces
+        speak('Now say the domain extension like "com" or "org".');
+        mode = 'registerEmailExtension';
+    } else if (mode === 'registerEmailExtension') {
+        userDetails.emailExtension = command.replace(/\s+/g, ''); // Remove any spaces
+        userDetails.email = `${userDetails.emailUser}@${userDetails.emailDomain}.${userDetails.emailExtension}`;
+
+        if (validateEmail(userDetails.email)) {
+            speak('Please look straight into the camera to complete registration.');
+            userInfoElement.innerHTML = `Name: ${userDetails.name}<br>Email: ${userDetails.email}`;
+            mode = 'capture';
+            captureImage();
+        } else {
+            speak('The email address you provided is not valid. Please start again.');
+            mode = 'registerName';
+        }
+    }
+};      
+        recognition.onerror = event => {
+            console.error('Speech recognition error:', event.error);
+            speak('Sorry, there was a problem with speech recognition.');
+        };
+
+        recognition.onend = () => {
+            // Restart speech recognition
+            recognition.start();
+        };
+
+        function captureImage() {
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            const imageData = canvas.toDataURL('image/jpeg');
+
+            fetch('/process', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image_data: imageData, userDetails: userDetails, mode: mode })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    if (mode === 'register') {
+                        speak('Registration successful. Thank you.');
+                        statusElement.textContent = data.message;
+                    } else if (mode === 'login') {
+                        speak('Login successful. Welcome back.');
+                        statusElement.textContent = data.message;
+                    }
+                } else {
+                    speak('An error occurred: ' + data.message);
+                    statusElement.textContent = data.message;
+                }
+            })
+            .catch(error => {
+                speak('An error occurred: ' + error.message);
+                statusElement.textContent = 'An error occurred: ' + error.message;
+            });
+        }
+
+        // Email validation function
+        function validateEmail(email) {
+            const re = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,6}$/;
+            return re.test(email);
+        }
+
+        // Access webcam
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                video.srcObject = stream;
+                mode = 'initial';
+                speak('Please say "register" to register or "login" to login.');
+                
+                // Start speech recognition
+                recognition.start();
+            })
+            .catch(error => {
+                speak('Error accessing webcam: ' + error.message);
+                statusElement.textContent = 'Error accessing webcam: ' + error.message;
+            });
+    </script>
+</body>
+</html>
